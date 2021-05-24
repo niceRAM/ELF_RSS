@@ -178,7 +178,7 @@ class Rss:
         reg = re.compile(r"(?<=\/)[^/\\]+?(?=\/)")
         for rss in rss_list:
             matched_cases = reg.findall(rss.url.lower())
-            to_write_file_name = matched_cases[0] if matched_cases else "default.json"
+            to_write_file_name = matched_cases[0] if matched_cases else "default"
             to_write_rss_file_map[to_write_file_name].append(rss)
 
         for file, _rss_list in to_write_rss_file_map.items():
