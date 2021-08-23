@@ -1,7 +1,9 @@
 import codecs
+import collections
 import json
 import os
 import re
+from typing import Dict, List
 from pathlib import Path
 
 from nonebot.log import logger
@@ -10,6 +12,9 @@ from ..config import config
 
 # 存储目录
 FILE_PATH = str(str(Path.cwd()) + os.sep + "data" + os.sep)
+BASE_RSS_FILE = os.path.join(FILE_PATH, "rss.json")
+# rss dropin 目录
+RSS_DROPIN_DIR = os.path.join(FILE_PATH, "rss.d")
 
 
 class Rss:
@@ -100,19 +105,73 @@ class Rss:
     # 读取记录
     @staticmethod
     def read_rss() -> list:
-        # 如果文件不存在
-        if not os.path.isfile(str(FILE_PATH + "rss.json")):
-            return []
-        rss_list = []
-        with codecs.open(str(FILE_PATH + "rss.json"), "r", "utf-8") as load_f:
-            rss_list_json = json.load(load_f)
-            for rss_one in rss_list_json:
-                tmp_rss = Rss("", "", "-1", "-1")
-                if not isinstance(rss_one, str):
-                    rss_one = json.dumps(rss_one)
-                tmp_rss.__dict__ = json.loads(rss_one)
-                rss_list.append(tmp_rss)
+        rss_list = [rss for rss_list in Rss.read_rss_map().values() for rss in rss_list]
         return rss_list
+
+    @staticmethod
+    def read_rss_map(file_name: str = None) -> Dict[str, List["Rss"]]:
+        """从 rss.json 和 data/rss.d 读取 rss
+
+        通过指定 `file_name` 以只读取某个特定的 rss 文件。
+
+        Args:
+            file_name (Optional[str]): rss 文件路径. 将读取为 f`data/{file_name}`.
+
+        Returns:
+            Dict[str, list]: {rss 文件路径: rss 订阅列表}
+        """
+
+        def look_up_files(root_, dir_=""):
+            """rss 文件遍历"""
+            _file_abs_path_list = []
+            for _root, _dirs, _files in os.walk(os.path.join(root_, dir_)):
+                for _dir in _dirs:
+                    _file_abs_path_list.extend(look_up_files(_root, _dir))
+                _file_abs_path_list.extend(
+                    [(_root, f) for f in _files if os.path.splitext(f)[-1] == ".json"]
+                )
+                return _file_abs_path_list
+
+        def _read_rss(file_):
+            """读取 rss 记录"""
+            rss_list = []
+            with codecs.open(file_, "r", "utf-8") as load_f:
+                rss_list_json = json.load(load_f)
+                for rss_one in rss_list_json:
+                    tmp_rss = Rss("", "", "-1", "-1")
+                    if type(rss_one) is not str:
+                        rss_one = json.dumps(rss_one)
+                    tmp_rss.__dict__ = json.loads(rss_one)
+                    rss_list.append(tmp_rss)
+            return rss_list
+
+        rss_list_map = collections.defaultdict(list)
+
+        if file_name:
+            to_load_rss_file = os.path.join(FILE_PATH, file_name)
+            if not os.path.exists(to_load_rss_file):
+                logger.warning(f"No such RSS file as: {file_name}")
+            else:
+                rss_list_map[to_load_rss_file].extend(_read_rss(to_load_rss_file))
+            return rss_list_map
+
+        if os.path.isfile(BASE_RSS_FILE):
+            rss_list_map[BASE_RSS_FILE].extend(_read_rss(BASE_RSS_FILE))
+        else:
+            logger.debug(f"No such RSS file as: {BASE_RSS_FILE}")
+
+        if not os.path.exists(RSS_DROPIN_DIR):
+            logger.debug(f"No such RSS Dropin as: {RSS_DROPIN_DIR}")
+            os.mkdir(RSS_DROPIN_DIR)
+            return rss_list_map
+
+        rss_file_list = look_up_files(RSS_DROPIN_DIR)
+
+        for root, file_name in rss_file_list:
+            rss_file = os.path.join(root, file_name)
+            logger.debug(f"Loading rss from: {rss_file}")
+            rss_list_map[rss_file].extend(_read_rss(rss_file))
+        return rss_list_map
 
     # 写入记录，传入rss list，不传就把当前 self 写入
     def write_rss(self, rss_new: list = None):
